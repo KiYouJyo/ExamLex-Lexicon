@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import json
 import sqlite3
 import sys
@@ -31,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
             initialize_database(args.db)
             print(f"Initialized schema v1: {args.db}")
             return 0
-        with connect_database(args.db) as conn:
+        with closing(connect_database(args.db)) as conn:
             if args.command == "seed-demo":
                 if conn.execute("PRAGMA user_version").fetchone()[0] != 1:
                     raise ValueError("Uninitialized database; run 'init' first.")

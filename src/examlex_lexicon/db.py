@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from . import SCHEMA_VERSION
@@ -25,7 +26,7 @@ def initialize_database(db_path: str | Path) -> None:
     """Create a v1 database. Re-running is safe; newer schemas are rejected."""
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with connect_database(path, must_exist=False) as conn:
+    with closing(connect_database(path, must_exist=False)) as conn:
         old_version = conn.execute("PRAGMA user_version").fetchone()[0]
         if old_version not in (0, SCHEMA_VERSION):
             raise ValueError(
