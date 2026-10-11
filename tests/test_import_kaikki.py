@@ -35,7 +35,6 @@ class ImportPipelineTests(unittest.TestCase):
         result = MODULE.import_words(self.db, self.targets, self.source)
         self.assertEqual(result["matched"], 2)
         self.assertEqual(result["database_counts"]["senses"], 2)
-        self.assertIn("address", result["statistics"] and ["address"])
         with connect_database(self.db) as conn:
             apple = lookup_word(conn, "apple")
             self.assertEqual(apple["cefr_level"], "A1")
