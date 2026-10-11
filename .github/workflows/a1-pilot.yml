@@ -11,7 +11,7 @@ on:
       - 'src/examlex_lexicon/**'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   pilot:
@@ -58,3 +58,40 @@ jobs:
             build/a1-import-report.json
             build/ATTRIBUTION.txt
           retention-days: 14
+
+      - name: Publish immutable pilot release for ExamLex updater
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="lexicon-a1-pilot-v0.1.0"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refusing to replace an immutable installed dictionary version."
+            exit 0
+          fi
+          cp build/examlex-a1-pilot.db build/examlex-lexicon.db
+          python - <<'PY'
+          import json, hashlib, os, sqlite3
+          path = "build/examlex-lexicon.db"
+          con = sqlite3.connect(path)
+          assert con.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+          assert con.execute("PRAGMA user_version").fetchone()[0] == 1
+          count = con.execute("SELECT COUNT(*) FROM entries").fetchone()[0]
+          con.close()
+          digest = hashlib.sha256(open(path, "rb").read()).hexdigest()
+          manifest = {
+              "schema_version": 1,
+              "version": "lexicon-a1-pilot-v0.1.0",
+              "filename": "examlex-lexicon.db",
+              "sha256": digest,
+              "entry_count": count,
+              "description": "120-word selection, partially matched with Simple Wiktionary. Not the full Oxford A1 word list.",
+              "attribution_file": "ATTRIBUTION.txt",
+          }
+          with open("build/lexicon-manifest.json", "w", encoding="utf-8") as f:
+              json.dump(manifest, f, ensure_ascii=False, indent=2)
+          PY
+          gh release create "$TAG" --target "$GITHUB_SHA" --title "ExamLex Lexicon A1 pilot 0.1.0" --notes "Initial, small development pilot vocabulary built from public Simple Wiktionary/Kaikki with source attribution. This is NOT the complete Oxford A1 list. Read ATTRIBUTION.txt and SOURCES.md before redistribution." --latest \
+            build/examlex-lexicon.db build/lexicon-manifest.json build/ATTRIBUTION.txt
