@@ -40,7 +40,7 @@ POS_ALIASES = {
     "modal v": "verb", "modal verb": "verb",
 }
 BLOCKED_SENSE_TAGS = {"form-of", "alt-of", "obsolete", "archaic", "rare"}
-MAX_SENSES_PER_POS = 10
+MAX_SENSES_PER_POS = 0  # 0 preserves all eligible source senses
 MAX_EXAMPLES_PER_SENSE = 2
 MAX_IPA_PER_POS = 6
 
@@ -120,13 +120,13 @@ def _source(conn: sqlite3.Connection, kind: str) -> int:
     return conn.execute("SELECT id FROM sources WHERE slug=?", (slug,)).fetchone()[0]
 
 
-def _entry(conn: sqlite3.Connection, word: str) -> int:
+def _entry(conn: sqlite3.Connection, word: str, cefr_source: str) -> int:
     norm = word.strip().casefold()
     conn.execute(
         "INSERT INTO entries (headword, normalized_headword, language, cefr_level, cefr_source) "
-        "VALUES (?, ?, 'en', 'A1', 'Oxford A1 (locally supplied selection)') "
+        "VALUES (?, ?, 'en', 'A1', ?) "
         "ON CONFLICT(language, normalized_headword, homograph_number) DO NOTHING",
-        (word.strip(), norm),
+        (word.strip(), norm, cefr_source),
     )
     row = conn.execute(
         "SELECT id, cefr_level, cefr_source FROM entries "
@@ -136,9 +136,8 @@ def _entry(conn: sqlite3.Connection, word: str) -> int:
     # Do not overwrite a reviewed or unrelated CEFR assignment in an existing DB.
     if row["cefr_level"] is None:
         conn.execute(
-            "UPDATE entries SET cefr_level='A1', "
-            "cefr_source='Oxford A1 (locally supplied selection)' WHERE id=?",
-            (row["id"],),
+            "UPDATE entries SET cefr_level='A1', cefr_source=? WHERE id=?",
+            (cefr_source, row["id"]),
         )
     elif row["cefr_level"] != "A1":
         raise ValueError(f"Conflict: {word} already has CEFR={row['cefr_level']}")
@@ -284,10 +283,11 @@ def _add_relations(conn: sqlite3.Connection, sense_id: int, sense: dict, source_
 
 
 def _upsert_record(
-    conn: sqlite3.Connection, row: dict, pos: str, source_id: int, counter: Counter
+    conn: sqlite3.Connection, row: dict, pos: str, source_id: int, counter: Counter,
+    cefr_source: str,
 ) -> None:
     word = row["word"].strip()
-    entry_id = _entry(conn, word)
+    entry_id = _entry(conn, word, cefr_source)
     counter["headword_pos_records"] += 1
     counter["pronunciations_inserted"] += _add_pronunciations(conn, entry_id, pos, row, source_id)
     counter["forms_inserted"] += _add_forms(conn, entry_id, pos, row, source_id)
@@ -322,7 +322,7 @@ def _upsert_record(
                 "SELECT COUNT(*) FROM senses WHERE entry_id=? AND part_of_speech=?",
                 (entry_id, pos),
             ).fetchone()[0]
-            if total >= MAX_SENSES_PER_POS:
+            if MAX_SENSES_PER_POS and total >= MAX_SENSES_PER_POS:
                 counter["excess_senses_skipped"] += 1
                 continue
             next_number = conn.execute(
@@ -350,6 +350,7 @@ def _upsert_record(
 def import_words(
     database: Path, wordlist: Path, input_file: Path,
     source_kind: str = "en", max_entries: int = 0,
+    cefr_source: str = "Local A1 selection (unverified source)",
 ) -> dict:
     targets = read_targets(wordlist)
     if not input_file.is_file():
@@ -357,6 +358,7 @@ def import_words(
     initialize_database(database)
     stats: Counter = Counter()
     matched: set[str] = set()
+    matched_pos: set[tuple[str, str]] = set()
     with connect_database(database) as conn:
         source_id = _source(conn, source_kind)
         conn.commit()
@@ -382,11 +384,17 @@ def import_words(
             if max_entries and norm not in matched and len(matched) >= max_entries:
                 continue
             with conn:
-                _upsert_record(conn, row, pos, source_id, stats)
+                _upsert_record(conn, row, pos, source_id, stats, cefr_source)
             matched.add(norm)
+            matched_pos.add((norm, pos))
         stats["matched_unique_words"] = len(matched)
         stats["target_unique_words"] = len(targets)
         stats["missing_unique_words"] = len(targets.keys() - matched)
+        all_pos = {(w, p) for w, pos_set in targets.items() for p in pos_set}
+        missing_pos = sorted(all_pos - matched_pos)
+        stats["target_word_pos_pairs"] = len(all_pos)
+        stats["matched_word_pos_pairs"] = len(matched_pos)
+        stats["missing_word_pos_pairs"] = len(missing_pos)
         valid = validate_database(conn)
         if not valid["ok"]:
             raise RuntimeError(f"Validation failed after import: {valid}")
@@ -397,6 +405,10 @@ def import_words(
         "targets": len(targets),
         "matched": len(matched),
         "missing": sorted(targets.keys() - matched),
+        "missing_word_pos": [{"word": w, "pos": p} for w, p in missing_pos],
+        "matched_word_pos": len(matched_pos),
+        "target_word_pos": len(all_pos),
+        "cefr_source": cefr_source,
         "statistics": dict(sorted(stats.items())),
         "database_counts": counts,
     }
@@ -412,13 +424,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--db", type=Path, default=Path("build/a1.db"))
     parser.add_argument("--source-kind", choices=SOURCES, default="en")
     parser.add_argument("--max-entries", type=int, default=0)
+    parser.add_argument("--cefr-source", default="Local A1 selection (unverified source)",
+                        help="Text describing who verified the A1 selection; never invented")
     parser.add_argument("--report", type=Path)
     args = parser.parse_args(argv)
     if args.max_entries < 0:
         parser.error("--max-entries must be >= 0")
     try:
         report = import_words(
-            args.db, args.wordlist, args.input, args.source_kind, args.max_entries
+            args.db, args.wordlist, args.input, args.source_kind, args.max_entries,
+            args.cefr_source,
         )
     except (OSError, ValueError, sqlite3.Error, RuntimeError) as exc:
         parser.exit(2, f"Import failed: {exc}\n")

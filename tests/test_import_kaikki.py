@@ -39,7 +39,7 @@ class ImportPipelineTests(unittest.TestCase):
             apple = lookup_word(conn, "apple")
             self.assertEqual(apple["cefr_level"], "A1")
             self.assertEqual(apple["cefr_source"],
-                             "Oxford A1 (locally supplied selection)")
+                             "Local A1 selection (unverified source)")
             self.assertEqual(apple["senses"][0]["part_of_speech"], "noun")
             self.assertEqual(len(apple["senses"][0]["examples"]), 1)
             self.assertEqual(apple["inflections"][0]["form"], "apples")
@@ -74,6 +74,37 @@ class ImportPipelineTests(unittest.TestCase):
             conn.commit()
         with self.assertRaises(ValueError):
             MODULE.import_words(self.db, self.targets, self.source)
+
+    def test_about_prep_and_adv_are_distinct_and_missing_pos_is_reported(self):
+        self.targets.write_text(
+            "word,pos,cefr_level\nabout,prep,A1\nabout,adv,A1\n",
+            encoding="utf-8",
+        )
+        result = MODULE.import_words(self.db, self.targets, self.source)
+        self.assertEqual(result["matched"], 1)
+        self.assertEqual(result["matched_word_pos"], 2)
+        self.assertEqual(result["missing_word_pos"], [])
+        with connect_database(self.db) as conn:
+            actual = {x["part_of_speech"] for x in lookup_word(conn, "about")["senses"]}
+        self.assertEqual(actual, {"prep", "adv"})
+        self.targets.write_text(
+            "word,pos,cefr_level\nabout,prep,A1\n", encoding="utf-8"
+        )
+        another_db = Path(self.workdir.name) / "prep_only.db"
+        result = MODULE.import_words(another_db, self.targets, self.source)
+        with connect_database(another_db) as conn:
+            actual = {x["part_of_speech"] for x in lookup_word(conn, "about")["senses"]}
+        self.assertEqual(actual, {"prep"})
+
+    def test_missing_part_of_speech_is_not_masked_by_matching_word(self):
+        self.targets.write_text(
+            "word,pos,cefr_level\naddress,noun,A1\naddress,adv,A1\n",
+            encoding="utf-8",
+        )
+        result = MODULE.import_words(self.db, self.targets, self.source)
+        self.assertEqual(result["matched"], 1)
+        self.assertEqual(result["matched_word_pos"], 1)
+        self.assertEqual(result["missing_word_pos"], [{"word": "address", "pos": "adv"}])
 
     def test_missing_word_report(self):
         self.targets.write_text("word,pos,cefr_level\napple,noun,A1\nzzyyzz,noun,A1\n",

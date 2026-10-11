@@ -3,3 +3,5 @@
 {"word":"address","lang_code":"en","pos":"verb","senses":[{"glosses":["To deal with a problem."]}]}
 {"word":"cat","lang_code":"en","pos":"noun","senses":[{"glosses":["A small mammal often kept as a pet."]}]}
 {"word":"apple","lang_code":"fr","pos":"noun","senses":[{"glosses":["Should never import this."]}]}
+{"word":"about","lang_code":"en","pos":"prep","senses":[{"id":"en-about-prep-test","glosses":["Concerning something."],"examples":[{"text":"Let's talk about your plans."}]}],"sounds":[{"ipa":"/əˈbaʊt/","tags":["US"]}]}
+{"word":"about","lang_code":"en","pos":"adv","senses":[{"id":"en-about-adv-test","glosses":["Approximately."],"examples":[{"text":"There are about twenty people."}]}]}
