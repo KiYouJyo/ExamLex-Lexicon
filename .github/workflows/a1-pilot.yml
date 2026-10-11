@@ -1,0 +1,60 @@
+name: Build A1 pilot SQLite
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/import_kaikki.py'
+      - 'data/samples/a1_pilot.csv'
+      - '.github/workflows/a1-pilot.yml'
+      - 'schema/schema.sql'
+      - 'src/examlex_lexicon/**'
+
+permissions:
+  contents: read
+
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download a small Kaikki Simple English source
+        run: |
+          mkdir -p build
+          curl --fail --location --retry 3 \
+            'https://kaikki.org/simplewiktionary/raw-wiktextract-data.jsonl.gz' \
+            --output build/simplewiktionary.jsonl.gz
+          gzip --test build/simplewiktionary.jsonl.gz
+      - name: Import limited A1 pilot headwords
+        run: |
+          PYTHONPATH=src python scripts/import_kaikki.py \
+            --wordlist data/samples/a1_pilot.csv \
+            --input build/simplewiktionary.jsonl.gz \
+            --source-kind simple \
+            --db build/examlex-a1-pilot.db \
+            --report build/a1-import-report.json
+          PYTHONPATH=src python -m examlex_lexicon --db build/examlex-a1-pilot.db validate
+      - name: Check representative coverage
+        run: |
+          python - <<'PY'
+          import json
+          with open("build/a1-import-report.json", encoding="utf-8") as file:
+              report = json.load(file)
+          assert report["matched"] >= 10, report
+          assert report["database_counts"]["senses"] >= 10, report
+          print("Matched A1 pilot words:", report["matched"])
+          PY
+      - name: Include source attribution
+        run: cp docs/A1_PILOT_ATTRIBUTION.md build/ATTRIBUTION.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: examlex-a1-pilot-sqlite
+          path: |
+            build/examlex-a1-pilot.db
+            build/a1-import-report.json
+            build/ATTRIBUTION.txt
+          retention-days: 14
