@@ -56,25 +56,27 @@ build/                     Generated databases (gitignored)
 
 ## A1 import (v0.2)
 
-The first **real lexical-data import** is implemented. The importer reads Kaikki/Wiktextract English JSONL or JSONL.gz and filters it by a local **Oxford A1 word + part of speech** CSV. It adds English definitions, IPA, inflections, meaning-level relations, and eligible usage examples; missing Chinese/Japanese meanings remain empty.
+The first **real lexical-data import** is implemented. The importer reads Kaikki/Wiktextract English JSONL or JSONL.gz and filters it by a local **Oxford A1 word + part of speech** CSV. It adds English definitions, IPA, inflections, meaning-level relations, and eligible usage examples; missing Chinese/Japanese meanings remain empty. The pilot source is now full English Wiktionary via Kaikki, not Simple Wiktionary.
 
 - [A1 import instructions for Windows and other platforms](docs/A1_IMPORT.md)
 - [Oxford PDF to private A1 CSV converter](scripts/prepare_oxford_a1.py) (requires optional PyMuPDF dependency)
 - [Streaming Kaikki JSONL importer](scripts/import_kaikki.py)
+- [Full English Wiktionary per-word downloader](scripts/fetch_kaikki_english_words.py)
 - [Small 120-word development pilot selection](data/samples/a1_pilot.csv) (NOT a full Oxford A1 list)
 - [Pilot SQLite workflow and downloadable artifact](https://github.com/KiYouJyo/ExamLex-Lexicon/actions/workflows/a1-pilot.yml)
 
-Example **pilot-only** command once you download Kaikki Simple Wiktionary's JSONL.gz file:
+Example **pilot-only** workflow using **full English Wiktionary** per-word JSONL (no multi-GB download):
 
 ```powershell
 $env:PYTHONPATH = "src"
-python scripts/import_kaikki.py --wordlist data/samples/a1_pilot.csv --input build/raw-wiktextract-data.jsonl.gz --source-kind simple --db build/a1-pilot.db --report build/a1-report.json
+python scripts/fetch_kaikki_english_words.py --wordlist data/samples/a1_pilot.csv --output build/a1-english.jsonl --report build/fetch-report.json
+python scripts/import_kaikki.py --wordlist data/samples/a1_pilot.csv --input build/a1-english.jsonl --source-kind en --cefr-source "Manual A1 pilot selection (Oxford-referenced)" --db build/a1-pilot.db --report build/a1-report.json
 python -m examlex_lexicon --db build/a1-pilot.db validate
 ```
 
 Use the PDF converter and locally held complete Oxford A1 PDF to generate a **private** full A1 selection; that complete wordlist is intentionally not redistributed here.
 
-Kaikki importer support is implemented, but ECDICT, EJDict and WordNet integrations are planned for subsequent stages. See [data model](docs/DATA_MODEL.md) and [source policy](SOURCES.md).
+Kaikki importer and full-English-Wiktionary downloader are implemented. The previous Simple Wiktionary v0.1 release is preserved; the corrected v0.2 series replaces it for new installs. Reports separately check words **and** word/POS combinations. ECDICT, EJDict and WordNet integrations are planned for later stages. See [data model](docs/DATA_MODEL.md) and [source policy](SOURCES.md).
 
 ## Licensing
 

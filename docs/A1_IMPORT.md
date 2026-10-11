@@ -1,6 +1,7 @@
 # v0.2 - A1 local import workflow
 
 The public repository contains a small pilot list, importer, tests, and tooling.
+The pilot now uses **full English Wiktionary**. Older Simple Wiktionary releases remain immutable historical builds.
 It deliberately DOES NOT contain the full proprietary Oxford 3000 A1 selection.
 To build the full A1 selection locally, use your own copy of Oxford's official
 "Oxford 3000 by CEFR level" PDF from:
@@ -19,16 +20,20 @@ from Kaikki / Wiktionary (Wiktextract).
     python -m pip install PyMuPDF
     python scripts/prepare_oxford_a1.py --pdf "The_Oxford_3000_by_CEFR_level.pdf" --output build/oxford_a1.csv
 
-3. Download Kaikki's Simple English Wiktionary raw JSONL gz file to build:
-
-    https://kaikki.org/simplewiktionary/raw-wiktextract-data.jsonl.gz
-
-4. Import the downloaded raw data and run validation:
+3. Download only the selected words from FULL English Wiktionary via Kaikki,
+   without fetching the 2.8 GB all-language raw dump:
 
     $env:PYTHONPATH = "src"
-    python scripts/import_kaikki.py --wordlist build/oxford_a1.csv --input build/raw-wiktextract-data.jsonl.gz --source-kind simple --db build/oxford-a1.db --report build/oxford-a1-report.json
+    python scripts/fetch_kaikki_english_words.py --wordlist build/oxford_a1.csv --output build/oxford-a1-english.jsonl --report build/download-report.json
+
+   Inspect download-report.json for missing word pages. This fetch uses
+   Kaikki's public English word-level JSONL files (postprocessed output).
+
+4. Import the downloaded English JSONL and check every selected part of speech:
+
+    python scripts/import_kaikki.py --wordlist build/oxford_a1.csv --input build/oxford-a1-english.jsonl --source-kind en --cefr-source "Oxford 3000 A1 (locally checked)" --db build/oxford-a1.db --report build/oxford-a1-report.json
     python -m examlex_lexicon --db build/oxford-a1.db validate
-    python -m examlex_lexicon --db build/oxford-a1.db lookup address
+    python -m examlex_lexicon --db build/oxford-a1.db lookup about
 
 5. For fuller coverage, download Kaikki's much larger English Wiktionary JSONL
    or JSONL.gz export from https://kaikki.org/dictionary/rawdata.html and change
@@ -49,10 +54,12 @@ from Kaikki / Wiktionary (Wiktextract).
 - Empty Chinese/Japanese translation, collocation and valency fields remain
   empty for later stages. Published versions must review dataset licenses.
 - Re-running against the same source deduplicates existing source sense links.
+- The import report includes `missing_word_pos`: matching a word is **not** enough if its selected noun, verb, adjective or adverb POS is missing.
+- Eligible source senses are preserved without an arbitrary 10-sense ceiling; similar English explanations are not automatically merged.
 - After updating the PDF converter or source format, manually inspect local
   build/oxford_a1.csv for missing multiword phrases, pronunciation variants,
   POS mismatches, and PDF column extraction problems.
-- The Actions workflow "Build A1 pilot SQLite" publishes a downloadable pilot
+- The Actions workflow "Build A1 pilot SQLite" publishes a downloadable full-English-Wiktionary pilot
   SQLite artifact with source attribution and a JSON import coverage report.
   This pilot is NOT a complete Oxford A1 export.
 
