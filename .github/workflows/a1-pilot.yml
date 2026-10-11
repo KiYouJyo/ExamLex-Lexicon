@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'scripts/import_kaikki.py'
+      - 'scripts/fetch_kaikki_english_words.py'
       - 'data/samples/a1_pilot.csv'
       - '.github/workflows/a1-pilot.yml'
       - 'schema/schema.sql'
@@ -22,19 +23,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Download a small Kaikki Simple English source
+      - name: Download selected lemmas from full English Wiktionary / Kaikki
         run: |
-          mkdir -p build
-          curl --fail --location --retry 3 \
-            'https://kaikki.org/simplewiktionary/raw-wiktextract-data.jsonl.gz' \
-            --output build/simplewiktionary.jsonl.gz
-          gzip --test build/simplewiktionary.jsonl.gz
-      - name: Import limited A1 pilot headwords
+          PYTHONPATH=src python scripts/fetch_kaikki_english_words.py \
+            --wordlist data/samples/a1_pilot.csv \
+            --output build/enwiktionary-a1-subset.jsonl \
+            --report build/kaikki-download-report.json
+      - name: Import full English Wiktionary into A1 SQLite pilot
         run: |
           PYTHONPATH=src python scripts/import_kaikki.py \
             --wordlist data/samples/a1_pilot.csv \
-            --input build/simplewiktionary.jsonl.gz \
-            --source-kind simple \
+            --input build/enwiktionary-a1-subset.jsonl \
+            --source-kind en \
+            --cefr-source 'Manual A1 pilot selection (Oxford-referenced)' \
             --db build/examlex-a1-pilot.db \
             --report build/a1-import-report.json
           PYTHONPATH=src python -m examlex_lexicon --db build/examlex-a1-pilot.db validate
@@ -46,7 +47,20 @@ jobs:
               report = json.load(file)
           assert report["matched"] >= 10, report
           assert report["database_counts"]["senses"] >= 10, report
-          print("Matched A1 pilot words:", report["matched"])
+          assert not any(
+              row["word"] == "about" and row["pos"] in ("prep", "adv")
+              for row in report["missing_word_pos"]
+          ), report
+          import sqlite3
+          with sqlite3.connect("build/examlex-a1-pilot.db") as conn:
+              pos = {row[0] for row in conn.execute(
+                  "SELECT DISTINCT s.part_of_speech FROM senses s "
+                  "JOIN entries e ON e.id=s.entry_id "
+                  "WHERE e.normalized_headword='about'"
+              )}
+          assert {"prep", "adv"}.issubset(pos), pos
+          print("Matched pilot words:", report["matched"])
+          print("Unmatched word/POS combinations:", report["missing_word_pos"])
           PY
       - name: Include source attribution
         run: cp docs/A1_PILOT_ATTRIBUTION.md build/ATTRIBUTION.txt
@@ -56,6 +70,7 @@ jobs:
           path: |
             build/examlex-a1-pilot.db
             build/a1-import-report.json
+            build/kaikki-download-report.json
             build/ATTRIBUTION.txt
           retention-days: 14
 
@@ -66,7 +81,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="lexicon-a1-pilot-v0.1.0"
+          TAG="lexicon-a1-pilot-v0.2.0"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists; refusing to replace an immutable installed dictionary version."
             exit 0
@@ -83,15 +98,15 @@ jobs:
           digest = hashlib.sha256(open(path, "rb").read()).hexdigest()
           manifest = {
               "schema_version": 1,
-              "version": "lexicon-a1-pilot-v0.1.0",
+              "version": "lexicon-a1-pilot-v0.2.0",
               "filename": "examlex-lexicon.db",
               "sha256": digest,
               "entry_count": count,
-              "description": "120-word selection, partially matched with Simple Wiktionary. Not the full Oxford A1 word list.",
+              "description": "120-word manual A1 pilot selection from full English Wiktionary; not the full Oxford A1 list.",
               "attribution_file": "ATTRIBUTION.txt",
           }
           with open("build/lexicon-manifest.json", "w", encoding="utf-8") as f:
               json.dump(manifest, f, ensure_ascii=False, indent=2)
           PY
-          gh release create "$TAG" --target "$GITHUB_SHA" --title "ExamLex Lexicon A1 pilot 0.1.0" --notes "Initial, small development pilot vocabulary built from public Simple Wiktionary/Kaikki with source attribution. This is NOT the complete Oxford A1 list. Read ATTRIBUTION.txt and SOURCES.md before redistribution." --latest \
+          gh release create "$TAG" --target "$GITHUB_SHA" --title "ExamLex Lexicon A1 pilot 0.2.0" --notes "Initial, small development pilot vocabulary built from full English Wiktionary/Kaikki with source attribution. This is NOT the complete Oxford A1 list. Read ATTRIBUTION.txt and SOURCES.md before redistribution." --latest \
             build/examlex-lexicon.db build/lexicon-manifest.json build/ATTRIBUTION.txt
